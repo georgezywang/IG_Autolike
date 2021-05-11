@@ -2,6 +2,8 @@ import argparse
 import yaml
 import instaloader
 import threading
+import signal
+import sys
 
 from instapy import InstaPy
 from instapy.util import web_address_navigator, get_relationship_counts
@@ -10,7 +12,6 @@ from selenium.common.exceptions import NoSuchElementException
 from colorama import Style, Fore
 
 def Ig_Auto_Like(maxLikes=2000, minLikes=10, maxFollowers=10000, minFollowing=30, minFollowers=30, whiteList = []):
-    session = InstaPy(username= USERNAME, password= PASSWORD)
     session.login()
 
     # similar implementation as InstaPy.like_by_feed_generator()
@@ -169,7 +170,8 @@ def Ig_Auto_Like(maxLikes=2000, minLikes=10, maxFollowers=10000, minFollowing=30
                         session.logger.info("Already liked {} / Amount {}".format(alreadyLiked, NUM_POSTS))
                         return
 
-    session.logger.info("Finished Liking {} Posts".format(postsLiked)) 
+    session.logger.info("Finished Liking {} Posts".format(postsLiked))
+    session.browser.close()
 
 def Get_Secure_Contacts():
     global SECURE_CONTACTS
@@ -195,12 +197,18 @@ def Get_Secure_Contacts():
 
     print(Fore.GREEN + "THREADINFO | Thread Finished Processing Secure Contacts" + Style.RESET_ALL)
 
+def Browser_Signal_Handler(sig, frame):
+    session.logger.info("Process Terminated through SIGINT")
+    sys.exit(0)
+
 def Main():
     with open('Config.yaml', 'r') as cfgFile:
         cfg = yaml.load(cfgFile, yaml.SafeLoader)
 
     contactThread = threading.Thread(target = Get_Secure_Contacts)
     autoLikeThread = threading.Thread(target = Ig_Auto_Like, kwargs = cfg)
+    contactThread.daemon = True
+    
     contactThread.start()
     autoLikeThread.start()
     contactThread.join()
@@ -208,6 +216,8 @@ def Main():
 
 
 if __name__ == "__main__":
+    signal.signal(signal.SIGINT, Browser_Signal_Handler)
+    
     ARG_PARSER = argparse.ArgumentParser()
     ARG_PARSER.add_argument("-u", "--username", help = "your ig username", required = True)
     ARG_PARSER.add_argument("-p", "--password", help = "your ig password", required = True)
@@ -222,4 +232,5 @@ if __name__ == "__main__":
     CONTACTS_EVENT = threading.Event()
     SECURE_CONTACTS = set()
 
+    session = InstaPy(username= USERNAME, password= PASSWORD)
     Main()
