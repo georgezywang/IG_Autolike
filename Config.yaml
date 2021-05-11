@@ -1,5 +1,9 @@
-MAX_LIKES: 2000000
-MIN_LIKES: 10
-MAX_FOLLOWERS: 1000000
-MIN_FOLLOWING: 30
-MIN_FOLLOWERS: 30
+maxLikes: 2000
+minLikes: 10
+maxFollowers: 100000
+minFollowing: 30
+minFollowers: 30
+whiteList:
+  - nasa
+  - natgeo
+  - spacex
