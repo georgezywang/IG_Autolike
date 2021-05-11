@@ -1,31 +1,19 @@
 import argparse
 import yaml
 import instaloader
+import threading
 
 from instapy import InstaPy
 from instapy.util import web_address_navigator, get_relationship_counts
 from instapy.like_util import get_links_from_feed, check_link, like_image, verify_liking
-
 from selenium.common.exceptions import NoSuchElementException
+from colorama import Style, Fore
 
-def Get_Secure_Contacts():
-    loader = instaloader.Instaloader()
-    loader.login(USERNAME, PASSWORD)
-    profile = instaloader.Profile.from_username(loader.context, USERNAME)
-    followees = profile.get_followees()
-    followers = profile.get_followers()
+def Ig_Auto_Like(maxLikes=2000, minLikes=10, maxFollowers=10000, minFollowing=30, minFollowers=30, whiteList = []):
+    session = InstaPy(username= USERNAME, password= PASSWORD)
+    session.login()
 
-    selfFollowers = set()
-    selfFollowees = set()
-    for f in followees:
-        selfFollowees.add(f.username)
-    for f in followers:
-        selfFollowers.add(f.username)
-    
-    return selfFollowees.intersection(selfFollowers)
-
-def Main(maxLikes=2000, minLikes=10, maxFollowers=10000, minFollowing=30, minFollowers=30, whiteList = []):
-    secureContacts = Get_Secure_Contacts()
+    # similar implementation as InstaPy.like_by_feed_generator()
 
     postsLiked = 0
     numOfSearch = 0
@@ -73,7 +61,7 @@ def Main(maxLikes=2000, minLikes=10, maxFollowers=10000, minFollowing=30, minFol
                 session.logger.info("New link found...")
                 history.append(link)
                 session.logger.info(
-                    "[{} posts liked /{} amount]".format(
+                    "[{} posts liked / {} amount]".format(
                         postsLiked, NUM_POSTS)
                 )
                 session.logger.info(link)
@@ -119,8 +107,13 @@ def Main(maxLikes=2000, minLikes=10, maxFollowers=10000, minFollowing=30, minFol
                         alreadyLiked += 1
                     
                     continue
+                
+                if (not CONTACTS_RETRIEVED):
+                    print(Fore.RED + "THREADINFO | Auto Like Thread Waiting For Secure Contacts Set" + Style.RESET_ALL)
+                    CONTACTS_EVENT.wait()
+                    print(Fore.GREEN + "THREADINFO | Auto Like Thread Resuming" + Style.RESET_ALL)
 
-                if userName not in secureContacts:
+                if userName not in SECURE_CONTACTS:
                     session.logger.info("User Name not in secure contacts, skipping...")
                     continue
                 
@@ -176,24 +169,57 @@ def Main(maxLikes=2000, minLikes=10, maxFollowers=10000, minFollowing=30, minFol
                         session.logger.info("Already liked {} / Amount {}".format(alreadyLiked, NUM_POSTS))
                         return
 
-    session.logger.info("Finished Liking {} Posts".format(postsLiked))    
+    session.logger.info("Finished Liking {} Posts".format(postsLiked)) 
+
+def Get_Secure_Contacts():
+    global SECURE_CONTACTS
+    global CONTACTS_RETRIEVED
+
+    print(Fore.GREEN + "THREADINFO | Getting Secure Contacts" + Style.RESET_ALL)
+    loader = instaloader.Instaloader()
+    loader.login(USERNAME, PASSWORD)
+    profile = instaloader.Profile.from_username(loader.context, USERNAME)
+    followees = profile.get_followees()
+    followers = profile.get_followers()
+
+    selfFollowers = set()
+    selfFollowees = set()
+    for f in followees:
+        selfFollowees.add(f.username)
+    for f in followers:
+        selfFollowers.add(f.username)
+
+    SECURE_CONTACTS = selfFollowees.intersection(selfFollowers)
+    CONTACTS_RETRIEVED = True
+    CONTACTS_EVENT.set()
+
+    print(Fore.GREEN + "THREADINFO | Thread Finished Processing Secure Contacts" + Style.RESET_ALL)
+
+def Main():
+    with open('Config.yaml', 'r') as cfgFile:
+        cfg = yaml.load(cfgFile, yaml.SafeLoader)
+
+    contactThread = threading.Thread(target = Get_Secure_Contacts)
+    autoLikeThread = threading.Thread(target = Ig_Auto_Like, kwargs = cfg)
+    contactThread.start()
+    autoLikeThread.start()
+    contactThread.join()
+    autoLikeThread.join()
+
 
 if __name__ == "__main__":
     ARG_PARSER = argparse.ArgumentParser()
     ARG_PARSER.add_argument("-u", "--username", help = "your ig username", required = True)
     ARG_PARSER.add_argument("-p", "--password", help = "your ig password", required = True)
     ARG_PARSER.add_argument("-a", "--amount", type = int, help = "posts to like", required = True)
+
     ARGS = ARG_PARSER.parse_args()
     USERNAME = ARGS.username
     PASSWORD = ARGS.password
     NUM_POSTS = ARGS.amount
 
-    session = InstaPy(username= USERNAME, password= PASSWORD)
-    session.login()
+    CONTACTS_RETRIEVED = False
+    CONTACTS_EVENT = threading.Event()
+    SECURE_CONTACTS = set()
 
-    with open('Config.yaml', 'r') as cfgFile:
-        cfg = yaml.load(cfgFile, yaml.SafeLoader)
-
-    Get_Secure_Contacts()
-
-    Main(**cfg)
+    Main()
