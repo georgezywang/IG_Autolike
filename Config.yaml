@@ -1,6 +1,6 @@
 maxLikes: 2000
 minLikes: 10
-maxFollowers: 100000
+maxFollowers: 10000
 minFollowing: 30
 minFollowers: 30
 whiteList:
@@ -11,3 +11,5 @@ whiteList:
   - wtofficial
   - nightwish
   - dukeuniversity
+unfollowWhiteList:
+  - duke.confessions

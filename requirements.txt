@@ -1,0 +1,6 @@
+InstaPy
+instaloader
+argparse
+selenium
+colorama
+typing

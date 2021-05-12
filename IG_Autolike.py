@@ -10,18 +10,32 @@ from instapy.util import web_address_navigator, get_relationship_counts
 from instapy.like_util import get_links_from_feed, check_link, like_image, verify_liking
 from selenium.common.exceptions import NoSuchElementException
 from colorama import Style, Fore
+from typing import List, Set
 
-def Ig_Auto_Like(maxLikes=2000, minLikes=10, maxFollowers=10000, minFollowing=30, minFollowers=30, whiteList = []):
-    session.login()
+def Ig_Auto_Like(
+    maxLikes : int = 2000, 
+    minLikes : int = 10, 
+    maxFollowers : int = 10000, 
+    minFollowing : int = 30, 
+    minFollowers : int = 30, 
+    whiteList : List[str] = [], 
+    unfollowWhiteList : List[str] = []
+):
 
     # similar implementation as InstaPy.like_by_feed_generator()
+    # autolike instagram posts and manage followees if specified
 
-    postsLiked = 0
-    numOfSearch = 0
-    linkNotFoundLoopError = 0
-    history = []
-    alreadyLiked = 0
-    whiteListLike = 0
+    session.login()
+
+    postsLiked : int = 0
+    numOfSearch : int = 0
+    linkNotFoundLoopError : int = 0
+    history : List[str] = []
+    alreadyLiked : int = 0
+    whiteListLike : int = 0
+    postByNonFollowees : int = 0
+
+    unfollowWhiteList = set(unfollowWhiteList)
 
     while (postsLiked < NUM_POSTS):
         try:
@@ -89,6 +103,14 @@ def Ig_Auto_Like(maxLikes=2000, minLikes=10, maxFollowers=10000, minFollowing=30
                 except:
                     continue
                 
+                if userName not in SELF_FOLLOWEES:
+                    postByNonFollowees += 1
+                    session.logger.warning("{} is not a followee, skipping...".format(userName))
+
+                    if postByNonFollowees >= NUM_POSTS / 10:
+                        session.logger.info("{} posts by non followees in feed, aborting".format(postByNonFollowees))
+                        break
+
                 if whiteListLike < NUM_POSTS / 3 and userName in whiteList:
                     session.logger.info("{} is in the whitelist".format(userName))
                     likeState, msg = like_image(
@@ -142,6 +164,7 @@ def Ig_Auto_Like(maxLikes=2000, minLikes=10, maxFollowers=10000, minFollowing=30
                 if session.liking_approved:
                         # validate user
                     validation, details = session.validate_user_call(userName)
+                    
                     if validation is not True:
                         session.logger.info(details)
                         not_valid_users += 1
@@ -170,40 +193,75 @@ def Ig_Auto_Like(maxLikes=2000, minLikes=10, maxFollowers=10000, minFollowing=30
                         session.logger.info("Already liked {} / Amount {}".format(alreadyLiked, NUM_POSTS))
                         return
 
-    session.logger.info("Finished Liking {} Posts".format(postsLiked))
-    session.browser.close()
+    session.logger.info("Finished Liking {} / {} Posts".format(postsLiked, NUM_POSTS))
+
+    if (ARGS.unfollow):
+        if (not CONTACTS_RETRIEVED):
+            print(Fore.RED + "THREADINFO | Auto Like Thread (UNFOLLOW) Waiting For Secure Contacts Set" + Style.RESET_ALL)
+            CONTACTS_EVENT.wait()
+            print(Fore.GREEN + "THREADINFO | Auto Like Thread (UNFOLLOW) Resuming" + Style.RESET_ALL)
+        Manage_Contacts(unfollowWhiteList)
 
 def Get_Secure_Contacts():
+    # get list of users that are both follower and followee
+
     global SECURE_CONTACTS
     global CONTACTS_RETRIEVED
+    global SELF_FOLLOWERS
+    global SELF_FOLLOWEES
 
     print(Fore.GREEN + "THREADINFO | Getting Secure Contacts" + Style.RESET_ALL)
+
     loader = instaloader.Instaloader()
     loader.login(USERNAME, PASSWORD)
     profile = instaloader.Profile.from_username(loader.context, USERNAME)
     followees = profile.get_followees()
     followers = profile.get_followers()
 
-    selfFollowers = set()
-    selfFollowees = set()
-    for f in followees:
-        selfFollowees.add(f.username)
-    for f in followers:
-        selfFollowers.add(f.username)
+    SELF_FOLLOWERS = {f.username for f in followers}
+    SELF_FOLLOWEES = {f.username for f in followees}
+    SECURE_CONTACTS = SELF_FOLLOWEES.intersection(SELF_FOLLOWERS)
 
-    SECURE_CONTACTS = selfFollowees.intersection(selfFollowers)
     CONTACTS_RETRIEVED = True
     CONTACTS_EVENT.set()
 
     print(Fore.GREEN + "THREADINFO | Thread Finished Processing Secure Contacts" + Style.RESET_ALL)
 
+def Manage_Contacts(unfollowWhiteList : Set[str]):
+    # unfollow nonfollowers followed by the user
+
+    toUnfollow : List[str] = []
+    nonfollower = SELF_FOLLOWEES.difference(SELF_FOLLOWERS)
+    
+    for userName in nonfollower:
+        if userName not in unfollowWhiteList:
+            usrFollowerCnt, usrFollowingCnt = get_relationship_counts(
+                            session.browser, userName, session.logger
+                        )
+            if usrFollowerCnt < cfg["maxFollowers"]:
+                toUnfollow.append(userName)
+                session.logger.info("{} will be unfollowed".format(userName))
+        else:
+            session.logger.info("User {} in unfollow white list, skipping".format(userName))
+
+    session.unfollow_users(
+        amount = len(toUnfollow),
+        custom_list_enabled = True,
+        custom_list = toUnfollow,
+        custom_list_param = "all",
+        style = "RANDOM",
+        unfollow_after = None,
+        sleep_delay = 60
+    )
+
 def Browser_Signal_Handler(sig, frame):
+    # Signal handler for keyboard interruption
+
     session.logger.info("Process Terminated through SIGINT")
     sys.exit(0)
 
 def Main():
-    with open('Config.yaml', 'r') as cfgFile:
-        cfg = yaml.load(cfgFile, yaml.SafeLoader)
+    # Main thread
 
     contactThread = threading.Thread(target = Get_Secure_Contacts)
     autoLikeThread = threading.Thread(target = Ig_Auto_Like, kwargs = cfg)
@@ -214,23 +272,30 @@ def Main():
     contactThread.join()
     autoLikeThread.join()
 
-
 if __name__ == "__main__":
     signal.signal(signal.SIGINT, Browser_Signal_Handler)
     
     ARG_PARSER = argparse.ArgumentParser()
     ARG_PARSER.add_argument("-u", "--username", help = "your ig username", required = True)
     ARG_PARSER.add_argument("-p", "--password", help = "your ig password", required = True)
-    ARG_PARSER.add_argument("-a", "--amount", type = int, help = "posts to like", required = True)
+    ARG_PARSER.add_argument("-a", "--amount", type = int, help = "posts to like", required = False, default = 0)
+    ARG_PARSER.add_argument("-f", "--unfollow", help = "whether to unfollow nonfollowers", action='store_true')
 
     ARGS = ARG_PARSER.parse_args()
     USERNAME = ARGS.username
     PASSWORD = ARGS.password
     NUM_POSTS = ARGS.amount
 
+    with open('Config.yaml', 'r') as cfgFile:
+        cfg = yaml.load(cfgFile, yaml.SafeLoader)
+
     CONTACTS_RETRIEVED = False
     CONTACTS_EVENT = threading.Event()
-    SECURE_CONTACTS = set()
+    SECURE_CONTACTS : Set[str] = set()
+    SELF_FOLLOWERS : Set[str] = set()
+    SELF_FOLLOWEES : Set[str] = set()
 
     session = InstaPy(username= USERNAME, password= PASSWORD)
     Main()
+
+    session.browser.close()
