@@ -34,10 +34,15 @@ def Ig_Auto_Like(
     alreadyLiked : int = 0
     whiteListLike : int = 0
     postByNonFollowees : int = 0
+    breakOuterLoop : bool = False
 
     unfollowWhiteList = set(unfollowWhiteList)
 
     while (postsLiked < NUM_POSTS):
+
+        if (breakOuterLoop):
+            break
+
         try:
             links = get_links_from_feed(
                 session.browser, NUM_POSTS, numOfSearch, session.logger
@@ -102,14 +107,6 @@ def Ig_Auto_Like(
                     )
                 except:
                     continue
-                
-                if userName not in SELF_FOLLOWEES:
-                    postByNonFollowees += 1
-                    session.logger.warning("{} is not a followee, skipping...".format(userName))
-
-                    if postByNonFollowees >= NUM_POSTS / 10:
-                        session.logger.info("{} posts by non followees in feed, aborting".format(postByNonFollowees))
-                        break
 
                 if whiteListLike < NUM_POSTS / 3 and userName in whiteList:
                     session.logger.info("{} is in the whitelist".format(userName))
@@ -135,6 +132,15 @@ def Ig_Auto_Like(
                     print(Fore.RED + "THREADINFO | Auto Like Thread Waiting For Secure Contacts Set" + Style.RESET_ALL)
                     CONTACTS_EVENT.wait()
                     print(Fore.GREEN + "THREADINFO | Auto Like Thread Resuming" + Style.RESET_ALL)
+                
+                if userName not in SELF_FOLLOWEES:
+                    postByNonFollowees += 1
+                    session.logger.warning("{} is not a followee, skipping...".format(userName))
+
+                    if postByNonFollowees >= NUM_POSTS / 10:
+                        session.logger.info("{} posts by non followees in feed, aborting".format(postByNonFollowees))
+                        breakOuterLoop = True
+                        break
 
                 if userName not in SECURE_CONTACTS:
                     session.logger.info("User Name not in secure contacts, skipping...")
@@ -164,7 +170,7 @@ def Ig_Auto_Like(
                 if session.liking_approved:
                         # validate user
                     validation, details = session.validate_user_call(userName)
-                    
+
                     if validation is not True:
                         session.logger.info(details)
                         not_valid_users += 1
@@ -191,7 +197,8 @@ def Ig_Auto_Like(
                     if alreadyLiked >= NUM_POSTS / 3:
                         session.logger.info("Too much already liked posts, terminating")
                         session.logger.info("Already liked {} / Amount {}".format(alreadyLiked, NUM_POSTS))
-                        return
+                        breakOuterLoop = True
+                        break
 
     session.logger.info("Finished Liking {} / {} Posts".format(postsLiked, NUM_POSTS))
 
@@ -291,11 +298,11 @@ if __name__ == "__main__":
 
     CONTACTS_RETRIEVED = False
     CONTACTS_EVENT = threading.Event()
+
     SECURE_CONTACTS : Set[str] = set()
     SELF_FOLLOWERS : Set[str] = set()
     SELF_FOLLOWEES : Set[str] = set()
 
     session = InstaPy(username= USERNAME, password= PASSWORD)
     Main()
-
     session.browser.close()
