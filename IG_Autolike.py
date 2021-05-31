@@ -69,7 +69,8 @@ def Ig_Auto_Like(
 
         for _, link in enumerate(links):
             if postsLiked == NUM_POSTS:
-                return
+                breakOuterLoop = True
+                break
 
             if link in history:
                 session.logger.info(
@@ -105,7 +106,14 @@ def Ig_Auto_Like(
                         session.ignore_if_contains,
                         session.logger,
                     )
-                except:
+                except KeyError:
+                    print(
+                         Fore.RED + "KeyError EXCEPTION, likely due to the current InstaPy library implementation. Try run `pip3 install -I https://github.com/schealex/InstaPy/zipball/develop` to install the fix. If you believe this is not the cause, comment out this exception handler." + Style.RESET_ALL
+                    )
+                    breakOuterLoop = True
+                    break
+                except Exception as ex:
+                    session.logger.info("EXCEPTION: {}, continuing...".format(ex))
                     continue
 
                 if whiteListLike < NUM_POSTS / 3 and userName in whiteList:
@@ -137,7 +145,7 @@ def Ig_Auto_Like(
                     postByNonFollowees += 1
                     session.logger.warning("{} is not a followee, skipping...".format(userName))
 
-                    if postByNonFollowees >= NUM_POSTS / 10:
+                    if postByNonFollowees > NUM_POSTS / 8:
                         session.logger.info("{} posts by non followees in feed, aborting".format(postByNonFollowees))
                         breakOuterLoop = True
                         break
